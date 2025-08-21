@@ -1,5 +1,5 @@
 ---
-title: "PBHS- HW3 (Liz Kim)"
+title: "Project 3"
 author: "Liz"
 date: "2025-04-24"
 output: pdf_document
