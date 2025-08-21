@@ -1,4 +1,4 @@
-# machine-learning-projects
+# Machine-Learning-Projects
 This repository contains the compilation of my class projects for Public Health Sciences 34500 (PBHS 34500), Machine Learning for Public Health. The course was taken in Spring 2025 at the University of Chicago and was taught by Eric Polley, Ph.D.
 
 These projects were designed primarily to exercise and develop skills rather than to advance a specific research question conceptually.
