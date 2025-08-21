@@ -3,6 +3,7 @@ This repository contains the compilation of my class projects for Public Health 
 
 These projects were designed primarily to exercise and develop skills rather than to advance a specific research question conceptually.
 
-Project 1: Used the ncbirths dataset to estimate predictors of low birthweight with Elastic Net and Random Forest models.
-Project 2: Used data from the U.S. National Health and Nutrition Examination Survey (NHANES) to estimate predictors with Elastic Net logistic regression and Random Forest models.
-Project 3: Used the HW dataset to estimate predictors with Random Forests and a Super Learner ensemble approach.
+- **Project 1:** Used the `ncbirths` dataset to estimate predictors of low birthweight with Elastic Net and Random Forest models.  
+- **Project 2:** Used data from the U.S. National Health and Nutrition Examination Survey (NHANES) to estimate predictors with Elastic Net logistic regression and Random Forest models.  
+- **Project 3:** Used the HW dataset to estimate predictors with Random Forests and a Super Learner ensemble approach.  
+
