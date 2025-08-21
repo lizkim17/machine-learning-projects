@@ -1,0 +1,358 @@
+---
+title: "Final Project: A Comparative Analysis of Predictive Models for Low Birthweight in North Carolina Using the ncbirths Dataset"
+author: |
+  Liz Kim  
+  PBHS 34500: Machine Learning for Public Health  
+  University of Chicago
+date: "2025-05-18"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+\newpage
+
+# A Comparative Analysis of Predictive Models for Low Birthweight in North Carolina Using the ncbirths Dataset
+
+## Describe the intended use of the predictor
+
+The intended use of the predictor is to estimate whether a baby will be born with low birthweight (defined as less than 2,500 grams) or not based on the variables in the dataset. I will compare Elastic Net and Random Forest models for this task because they represent two distinct modeling approaches. From previous homework assignments, I observed that linear models can sometimes perform surprisingly well—even though we often assume that nonlinear methods will perform better due to their complexity. This insight led me to test both approaches on the current dataset to examine whether the simpler Elastic Net can match or even outperform the more complex Random Forest in predicting low birthweight. This model could be used to help clinicians identify at-risk pregnancies early on and intervene with targeted prenatal care or health education to reduce the risk of adverse birth outcomes.
+
+## Describe the study design for the data and how it impacts your development
+
+In 2004, a publicly available U.S. birth registry dataset was released, containing detailed information on births recorded that year. The ncbirths dataset used in this study is a subset derived specifically from birth records in North Carolina and consists of a random sample of 1,000 cases, including 13 variables. These variables include the father's age (fage), mother's age (mage), maternal maturity status (mature), length of pregnancy in weeks (weeks), whether the birth was premature (premie), number of prenatal visits (visits), maternal weight gain during pregnancy (gained), baby’s birthweight in grams (weight), whether the baby was classified as low birthweight (lowbirthweight), baby’s gender (gender), maternal smoking status (habit), marital status at birth (marital), and maternal race (whitemom). The variable lowbirthweight is a binary indicator derived from the weight variable and follows the standard clinical definition: babies weighing less than 2,500 grams at birth are classified as "low," while those at or above this threshold are classified as "not low." As an observational, cross-sectional dataset derived from administrative health records, it is well-suited for developing predictive models.
+
+While the random sampling enhances internal validity, generalizability to broader or more recent populations may be limited. Also, since the dataset is from 2004, this might not be generalizable for more recent datasets. These considerations are important when interpreting model performance and when considering potential applications in clinical or public health settings.
+
+## Describe the methodology considered and how it is appropriate biostatistical and machine learning methods to solve the problem
+
+I compared two predictive modeling approaches — Elastic Net logistic regression and Random Forest — to build a model that predicts whether a baby will be born with low birthweight. These two models were chosen because they have different strengths: Elastic Net is a linear model that is easy to interpret and works well when predictors are related to each other. It uses a mix of L1 and L2 regularization to reduce overfitting and select important variables. Random Forest, on the other hand, is a more flexible machine learning method that builds many decision trees to capture nonlinear patterns and interactions among variables. To train and evaluate both models, I used 10-fold cross-validation. Model performance was assessed using both MSE and AUC, providing a balanced comparison between prediction accuracy and model interpretability—two important considerations in health-related applications.
+
+## Describe the reasoning for your selected loss function(s) and your plan for hyperparameter selection/tuning and performance evaluation
+
+For Elastic Net, I used binomial deviance as the loss function, which is the default in glmnet when specifying family = "binomial" for binary classification problems such as predicting low birthweight. I set alpha = 0.5 to balance the effects of L1 (Lasso) and L2 (Ridge) regularization, allowing the model to both shrink coefficients and perform variable selection. The lambda parameter, which controls the overall strength of regularization, was chosen using 10-fold cross-validation on the training data. This helped selecting the value that minimized cross-validated deviance.
+
+For Random Forest, I followed both standard practice and class guidelines. I set mtry to floor(p / 3), where p is the number of predictors, which encourages diversity among trees and typically improves model performance. I used the default value of 500 for ntree, the number of trees, as it usually provides stable results without excessive computation time. To compare model performance, I used the Area Under the ROC Curve (AUC), which is a robust measure of a model’s ability to distinguish between low and normal birthweight outcomes.
+
+## Describe feature engineering steps and exploratory data analysis
+
+I removed any rows with missing values using na.omit() to ensure complete cases for analysis. Through initial data exploration, I recognized that the variable lowbirthweight is directly derived from the continuous variable weight—specifically, it is a binary indicator of whether birthweight is less than 2,500 grams. Given this, weight is inherently and strongly correlated with the outcome and likely dominates the model’s predictive power. Therefore, I first ran analyses including weight to examine baseline model performance, and then repeated the analyses excluding weight to assess how well the models perform using only other predictors. Also, I realized it is imbalanced, with only 9.25% of cases labeled as low birthweight. This class imbalance highlights the importance of using appropriate evaluation metrics such as AUC because AUC helps evaluate how well the model really distinguishes between low and not low birthweight. Moreover, I examined variables such as father’s age (fage), mother’s age (mage), whether the baby was born prematurely (premie), and getational age (weeks). For (weeks), I identified outliers that may indicate extremely early or late births and could significantly influence model predictions.
+
+## Provide at least 2 graphical displays for the predictor
+
+```{r}
+library(openintro)
+data(ncbirths)
+all(ncbirths$weight[ncbirths$lowbirthweight == "low"] < 2500)
+```
+
+### Elastic Net
+
+```{r}
+library(glmnet)
+library(dplyr)
+data(ncbirths)
+
+# Drop rows with missing values
+ncbirths_clean <- na.omit(ncbirths)
+
+# Explore the dataset
+table(ncbirths_clean$lowbirthweight)
+prop.table(table(ncbirths_clean$lowbirthweight))
+
+summary(ncbirths_clean$fage)
+summary(ncbirths_clean$mage)
+summary(ncbirths_clean$premie)
+
+summary(ncbirths_clean$weeks)
+Q1 <- quantile(ncbirths_clean$weeks, 0.25)
+Q3 <- quantile(ncbirths_clean$weeks, 0.75)
+IQR_val <- Q3 - Q1
+lower_bound <- Q1 - 1.5 * IQR_val
+upper_bound <- Q3 + 1.5 * IQR_val
+outliers <- ncbirths_clean$weeks[ncbirths_clean$weeks < lower_bound | ncbirths_clean$weeks > upper_bound]
+print(outliers)
+
+# Prepare the data
+Y_glmnet <- as.numeric(ncbirths_clean$lowbirthweight == "low")
+X_glmnet <- model.matrix(lowbirthweight ~ . -1, data = ncbirths_clean)
+```
+
+```{r}
+# Elastic Net Regression (alpha = 0.5)
+set.seed(20)
+fit_en_cv <- cv.glmnet(
+  X_glmnet,
+  Y_glmnet,
+  alpha = 0.5,
+  family = "binomial",
+  nfolds = 10
+)
+
+# Results
+plot(fit_en_cv)
+
+cat("Elastic Net - Min lambda:", log(fit_en_cv$lambda.min), "\n")
+cat("Elastic Net - 1SE lambda:", log(fit_en_cv$lambda.1se), "\n")
+
+fit_en_cv$lambda.min
+fit_en_cv$lambda.1se
+
+en_mse <- mean((Y_glmnet - predict(fit_en_cv, X_glmnet, s = "lambda.min", type = "response"))^2)
+mse_df <- data.frame(Model = "Elastic Net", MSE = en_mse)
+print(mse_df)
+```
+
+### Random Forest
+
+```{r}
+library(randomForest)
+
+# Parameters
+set.seed(20)
+p <- ncol(X_glmnet)
+mtry_rf <- floor(p / 3)
+ntree_rf <- 500
+nodesize_rf <- 5
+
+# Create 10 random folds
+n <- nrow(X_glmnet)
+folds <- sample(rep(1:10, length.out = n))
+
+cv_mse <- numeric(10)
+
+for (i in 1:10) {
+  test_idx  <- which(folds == i)
+  train_idx <- setdiff(1:n, test_idx)
+  
+  X_train <- X_glmnet[train_idx, , drop = FALSE]
+  Y_train <- as.factor(Y_glmnet[train_idx]) 
+  X_test  <- X_glmnet[test_idx, , drop = FALSE]
+  Y_test  <- Y_glmnet[test_idx]
+  
+  rf_model <- randomForest(
+    x        = X_train,
+    y        = Y_train,
+    ntree    = ntree_rf,
+    mtry     = mtry_rf,
+    nodesize = nodesize_rf
+  )
+  prob_preds <- predict(rf_model, X_test, type = "prob")[, 2]
+  cv_mse[i] <- mean((Y_test - prob_preds)^2)
+}
+
+# MSE
+mean_cv_mse <- mean(cv_mse)
+cat("10-Fold CV MSE for Random Forest:", round(mean_cv_mse, 4), "\n")
+```
+
+### Evaluation
+
+```{r}
+library(ggplot2)
+library(plotROC)
+
+# Prepare Data
+set.seed(20)
+n <- nrow(X_glmnet)
+folds <- split(1:n, rep(1:10, length.out = n))
+
+# Stack the CV predictions
+cvPred_en <- rep(NA, n)
+cvPred_rf <- rep(NA, n)
+
+# Loop over folds
+for (v in 1:10) {
+  train_idx <- setdiff(1:n, folds[[v]])
+  test_idx  <- folds[[v]]
+  
+  X_train <- X_glmnet[train_idx, ]
+  Y_train <- Y_glmnet[train_idx]
+  X_test  <- X_glmnet[test_idx, ]
+  
+  # Elastic Net
+  fit_en <- glmnet(X_train, Y_train, family = "binomial", alpha = 0.5)
+  lambda_opt <- cv.glmnet(X_train, Y_train, family = "binomial", alpha = 0.5)$lambda.1se
+  cvPred_en[test_idx] <- predict(fit_en, newx = X_test, s = lambda_opt, type = "response")
+  
+  # Random Forest
+  rf_fit <- randomForest(x = X_train, y = as.factor(Y_train), ntree = 500, mtry = floor(ncol(X_train)/3))
+  cvPred_rf[test_idx] <- as.numeric(predict(rf_fit, X_test, type = "prob")[,2])
+}
+
+# Combine predictions and outcomes
+auc_df <- data.frame(
+  true = Y_glmnet,
+  en = cvPred_en,
+  rf = cvPred_rf
+)
+
+# ROC curves
+g <- ggplot(auc_df) +
+  geom_roc(aes(d = true, m = en), n.cuts = 0, color = "blue") +
+  geom_roc(aes(d = true, m = rf), n.cuts = 0, color = "green") +
+  style_roc() +
+  ggtitle("Elastic Net (blue) vs Random Forest (green)")
+print(g)
+
+# AUCs
+en_auc <- calc_auc(ggplot(auc_df, aes(d = true, m = en)) + geom_roc(n.cuts = 0))$AUC
+rf_auc <- calc_auc(ggplot(auc_df, aes(d = true, m = rf)) + geom_roc(n.cuts = 0))$AUC
+
+cat("Elastic Net AUC:", round(en_auc, 4), "\n")
+cat("Random Forest AUC:", round(rf_auc, 4), "\n")
+```
+
+When comparing mean squared error (MSE) based on predicted probabilities, the Elastic Net model slightly outperformed the Random Forest model (MSE = 0.0012 vs. 0.0018). This suggests that Elastic Net's probability estimates were slightly more accurate, meaning they were closer to the actual outcomes.
+
+Both models demonstrated excellent predictive performance in identifying low birthweight cases. The Elastic Net model achieved an AUC of 0.9992, while the Random Forest model achieved a perfect AUC of 1.0000. Although the Random Forest model slightly outperformed Elastic Net, these results suggest that the features in the dataset provide strong signals for distinguishing between low and normal birthweight outcomes for both predictors. 
+
+In conclusion, the Random Forest model achieved a slightly higher AUC and the Elastic Net model produced lower MSE values. This distinction highlights a trade-off: Random Forest is preferable when the goal is to prioritize or rank individuals based on relative risk, whereas Elastic Net is better suited for applications that rely on accurate predictions. It's also worth noting that Random Forest tends to produce more extreme predictions, which may lower MSE. Ultimately, the choice between these models should be guided by the specific context in which the predictor will be used.
+
+### Additional Analysis
+
+However, the results look too good to be true. It's unusual to see such high accuracy, especially with real-world data; the Elastic Net model achieved an AUC of 0.9992, and the Random Forest model reached a perfect AUC of 1.0000, with very low MSEs (0.0012 vs. 0.0018). This is probably because of the variable "weight." Also, another reason could be that the outcome is very imbalanced — only about 9% of babies in the dataset had low birthweight — which can make the models look better than they really are; this is why I included AUC as evaluation method.
+
+```{r}
+library(glmnet)
+library(dplyr)
+library(randomForest)
+
+# Top 3 features from Elastic Net
+coef_en <- coef(fit_en_cv, s = "lambda.1se")
+coef_vec <- as.vector(coef_en)
+names(coef_vec) <- rownames(coef_en)
+coef_df <- data.frame(
+  feature = names(coef_vec),
+  coefficient = coef_vec
+)
+coef_df <- coef_df %>%
+  filter(feature != "(Intercept)") %>%
+  mutate(abs_coef = abs(coefficient)) %>%
+  arrange(desc(abs_coef)) %>%
+  slice(1:3)
+print("Top 3 features from Elastic Net:")
+print(coef_df)
+
+# Top 3 features from Random Forest
+importance_df <- importance(rf_model)
+importance_df <- data.frame(
+  Feature = rownames(importance_df),
+  Importance = importance_df[, "MeanDecreaseGini"]
+)
+top_rf <- importance_df %>%
+  arrange(desc(Importance)) %>%
+  slice(1:3)
+print(top_rf)
+```
+
+```{r}
+library(glmnet)
+library(dplyr)
+library(randomForest)
+library(ggplot2)
+library(plotROC)
+
+ncbirths_clean <- read.csv("ncbirths_clean.csv")
+ncbirths_clean2 <- ncbirths_clean %>% select(-weight)
+Y_glmnet <- as.numeric(ncbirths_clean2$lowbirthweight == "low")
+X_glmnet <- model.matrix(lowbirthweight ~ . -1, data = ncbirths_clean2)
+
+# Elastic Net Regression
+set.seed(20)
+fit_en_cv <- cv.glmnet(
+  X_glmnet,
+  Y_glmnet,
+  alpha = 0.5,
+  family = "binomial",
+  nfolds = 10
+)
+
+plot(fit_en_cv)
+cat("Elastic Net - Min lambda:", log(fit_en_cv$lambda.min), "\n")
+cat("Elastic Net - 1SE lambda:", log(fit_en_cv$lambda.1se), "\n")
+
+en_mse <- mean((Y_glmnet - predict(fit_en_cv, X_glmnet, s = "lambda.min", type = "response"))^2)
+mse_df <- data.frame(Model = "Elastic Net", MSE = en_mse)
+print(mse_df)
+
+# Random Forest
+set.seed(20)
+p <- ncol(X_glmnet)
+mtry_rf <- floor(p / 3)
+ntree_rf <- 500
+nodesize_rf <- 5
+
+n <- nrow(X_glmnet)
+folds <- sample(rep(1:10, length.out = n))
+cv_mse <- numeric(10)
+
+for (i in 1:10) {
+  test_idx  <- which(folds == i)
+  train_idx <- setdiff(1:n, test_idx)
+  
+  X_train <- X_glmnet[train_idx, , drop = FALSE]
+  Y_train <- as.factor(Y_glmnet[train_idx])
+  X_test  <- X_glmnet[test_idx, , drop = FALSE]
+  Y_test  <- Y_glmnet[test_idx]
+  
+  rf_model <- randomForest(
+    x = X_train,
+    y = Y_train,
+    ntree = ntree_rf,
+    mtry = mtry_rf,
+    nodesize = nodesize_rf
+  )
+  
+  prob_preds <- predict(rf_model, X_test, type = "prob")[, 2]
+  cv_mse[i] <- mean((Y_test - prob_preds)^2)
+}
+
+cat("10-Fold CV MSE for Random Forest:", round(mean(cv_mse), 4), "\n")
+
+# AUC
+set.seed(20)
+folds <- split(1:n, rep(1:10, length.out = n))
+cvPred_en <- rep(NA, n)
+cvPred_rf <- rep(NA, n)
+
+for (v in 1:10) {
+  train_idx <- setdiff(1:n, folds[[v]])
+  test_idx  <- folds[[v]]
+  
+  X_train <- X_glmnet[train_idx, ]
+  Y_train <- Y_glmnet[train_idx]
+  X_test  <- X_glmnet[test_idx, ]
+  
+  fit_en <- glmnet(X_train, Y_train, family = "binomial", alpha = 0.5)
+  lambda_opt <- cv.glmnet(X_train, Y_train, family = "binomial", alpha = 0.5)$lambda.1se
+  cvPred_en[test_idx] <- predict(fit_en, newx = X_test, s = lambda_opt, type = "response")
+  
+  rf_fit <- randomForest(x = X_train, y = as.factor(Y_train), ntree = 500, mtry = floor(ncol(X_train)/3))
+  cvPred_rf[test_idx] <- as.numeric(predict(rf_fit, X_test, type = "prob")[,2])
+}
+
+auc_df <- data.frame(true = Y_glmnet, en = cvPred_en, rf = cvPred_rf)
+
+g <- ggplot(auc_df) +
+  geom_roc(aes(d = true, m = en), n.cuts = 0, color = "blue") +
+  geom_roc(aes(d = true, m = rf), n.cuts = 0, color = "green") +
+  style_roc() +
+  ggtitle("Elastic Net (blue) vs Random Forest (green)")
+print(g)
+
+en_auc <- calc_auc(ggplot(auc_df, aes(d = true, m = en)) + geom_roc(n.cuts = 0))$AUC
+rf_auc <- calc_auc(ggplot(auc_df, aes(d = true, m = rf)) + geom_roc(n.cuts = 0))$AUC
+cat("Elastic Net AUC:", round(en_auc, 4), "\n")
+cat("Random Forest AUC:", round(rf_auc, 4), "\n")
+```
+
+Initially, both models demonstrated near-perfect performance, which raised concerns about overly optimistic results. Upon reviewing the top features for each model, it became clear that the variable "weight"—which directly determines the outcome variable lowbirthweight—was driving much of this accuracy. As expected, weight was identified as a top predictor in both Elastic Net and Random Forest models. To address this, I re-ran the analysis excluding weight, resulting in more realistic results; Elastic Net achieved an AUC of 0.8805 and MSE of 0.0443, while Random Forest showed an AUC of 0.8727 and MSE of 0.0467. While the difference in performance between models is small, Elastic Net slightly outperformed Random Forest.
+
+## Explain a (hypothetical) plan for implementation and monitoring
+
+The predictors could be used in clinical or public health settings to help identify pregnancies at high risk for low birthweight early on. For example, healthcare providers could enter basic information such as the variables in the dataset, and the model would estimate the baby’s risk of being born underweight. This could guide more personalized prenatal care, such as recommending additional monitoring, nutritional support, or earlier interventions for high-risk pregnancies. Hospitals or clinics in North Carolina could integrate the model into their electronic health records (EHR) systems to support routine prenatal screenings. The model could also help public health departments identify communities with a higher concentration of risk and allocate more resources to certain regions.
+
+To ensure the model remains accurate and useful over time, it would be important to develop a monitoring plan. First, it should be updated with new data. Since this model is based on 2004 data, it may not reflect more recent health trends. To keep predictions relevant, the model should be retrained or recalibrated every few years using updated data from current birth records. Second, we should monitor model performance. Once deployed, the model should be continuously monitored such as checking for feature drift, prediction shifts, and performance drops. Also, monitoring tools like control charts or dashboards could help detect when something is off, so the model can be adjusted. In the long term, it would be useful to test the real-world impact of the model through an implementation trial. For instance, pregnant individuals could be randomly assigned to receive care with or without the help of the model, and the outcome could be compared. This type of trial helps evaluate whether predictive tools actually improve care and outcomes in practice — not just in theory.
+
+Lastly, we should acknowledge one important limitation of this model. It is based solely on birth records from North Carolina, which may limit its generalizability to other populations or geographic regions. Differences in healthcare access, socioeconomic factors, population demographics, and public health infrastructure across states may affect how well the model performs. Therefore, before applying this model in other settings, it would be necessary to retrain it using locally specific data to ensure it remains accurate and relevant.

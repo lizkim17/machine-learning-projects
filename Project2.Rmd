@@ -1,0 +1,224 @@
+---
+title: "HW4-Liz Kim"
+output: html_document
+---
+
+```{r}
+library(readr)
+library(glmnet)      
+library(randomForest) 
+library(ggplot2) 
+library(tidyverse) 
+```
+
+# 1. Data from the US National Health and Nutrition Examination Study (NHANES) has been processed, cleaned, and randomly subset, the CSV file is available on canvas. The example includes N=5,000 individuals and 13 variables
+
+```{r}
+read.csv("NHANES_diabetes_clean_sub.csv")
+```
+
+## a. Estimate a predictor for diabetes (1=yes, 0 = no) given the other health and demographic variables (outcome is the probability of diabetes). Describe your approach to selecting features, tuning parameters, and the evaluation method for model selection. You can use any of the methods from the course.
+
+```{r}
+df2 <- read_csv("NHANES_diabetes_clean_sub.csv")
+
+# Create X and Y
+Y_glmnet <- df2$diabetes                   
+X <- df2 %>% select(-diabetes)    
+
+# Convert to numeric matrix
+X_glmnet <- model.matrix(~ ., data = X)[, -1]  
+
+# Check structures
+str(Y_glmnet)
+str(X_glmnet)
+
+# Fit Elastic Net with 10-fold CV
+set.seed(20)
+fit_en_cv <- cv.glmnet(X_glmnet, Y_glmnet, 
+                       alpha = 0.5, 
+                       nfolds = 10, 
+                       family = "binomial",  
+                       type.measure = "class") 
+plot(fit_en_cv)
+
+# Print lambda values
+cat("Elastic Net - Min lambda:", log(fit_en_cv$lambda.min), "\n")
+cat("Elastic Net - 1SE lambda:", log(fit_en_cv$lambda.1se), "\n")
+
+fit_en_cv$lambda.min
+fit_en_cv$lambda.1se
+```
+
+To predict the probability of diabetes (1 = yes, 0 = no) using health and demographic variables, I used Elastic Net logistic regression, a regularized regression method that balances the strengths of both Lasso (L1) and Ridge (L2) penalties. It combines the strengths of both Ridge and Lasso; it performs feature selection like Lasso (removes unimportant variables) but handles correlated variables better than Lasso like Ridge. In terms of feature selection, Elastic Net performs automatic feature selection through cross-validation; it selects an optimal lambda value that controls the overall penalty strength. For parameter tuning, lambda controls the strength of the regularization. A higher lambda penalizes model complexity more strongly, shrinking coefficients toward zero and potentially removing less informative predictors. Alpha was set to 0.5 to define the model as Elastic Net, which balances the effects of Lasso (L1) and Ridge (L2) regularization by giving equal weights. For evaluation method, I used 10-fold cross-validation. This approach involves dividing the data into 10 equal parts, training the model on 9 parts, and testing it on the remaining part—repeating this process 10 times so that each fold serves as the test set once. The average classification error across folds is then computed for each candidate value of the regularization parameter (lambda). I selected the value of lambda that minimized this error (lambda.min) and also considered lambda.1se, which provides a simpler model within one standard error of the minimum error. This cross-validation strategy helps ensure that the selected model generalizes well to new data and avoids overfitting.
+
+The lambda that minimized misclassification error was 0.0213 (log lambda ≈ -3.85), as shown by the lowest point on the cross-validation curve. A more regularized model with lambda = 0.1728 (log ≈ -1.76) falls within one standard error of the minimum and would yield a simpler model with fewer predictors while maintaining similar error.
+
+## b. Using a resampling method, estimate the ROC curve for the predictor and report the area under the ROC curve.
+
+```{r}
+
+library(glmnet)
+library(plotROC)
+library(tidyverse)
+
+# Prepare data
+X_full <- model.matrix(~ . - diabetes, data = df2)[, -1]
+Y_glmnet <- df2$diabetes
+set.seed(20)
+N <- nrow(df2)
+V <- 10
+folds <- split(1:N, rep(1:V, length.out = N))
+
+# Stack the CV predictions (Method 2)
+cvPred <- rep(NA, length = N)
+
+# Loop over folds
+for (v in 1:V) {
+  tmp_train_idx <- setdiff(1:N, folds[[v]])
+  tmp_test_idx  <- folds[[v]]
+  X_train <- X_full[tmp_train_idx, ]
+  Y_train <- Y_glmnet[tmp_train_idx]
+  X_test  <- X_full[tmp_test_idx, ]
+  fit_glmnet <- glmnet(X_train, Y_train, family = "binomial",
+                       alpha = 0.5, lambda = fit_en_cv$lambda.1se)
+
+# use folds to make sure the predictions line up
+  cvPred[tmp_test_idx] <- predict(fit_glmnet, newx = X_test, type = "response")
+}
+df2$cvPred <- cvPred
+
+# Plot ROC
+g_cv <- ggplot(df2, aes(d = diabetes, m = cvPred)) +
+  geom_roc(n.cuts = 0) +
+  style_roc() +
+  ggtitle("10-Fold Cross-Validated ROC - Elastic Net")
+print(g_cv)
+calc_auc(g_cv)$AUC
+```
+I used 10-fold cross-validation to evaluate how well the Elastic Net model predicts diabetes. After training and testing the model across the folds, I plotted the ROC curve, which shows how well the model separates people with and without diabetes. The curve is close to a straight diagonal line, which means the model isn't doing much better than random guessing. The AUC (area under the curve) is 0.506, which is very close to 0.5—the score you'd expect from a model that’s just guessing. This suggests that the current set of health and demographic predictors may not be sufficient for accurately predicting diabetes, even though the modeling approach itself is statistically appropriate.
+
+# 2. Using the random forest predictor you estimated in HW3, apply the permutation feature importance method from Lecture 14.
+
+```{r}
+# From HW3
+df <- read.csv("HW2_dataset.csv")
+
+Y_glmnet <- df$Y
+X <- df %>% select(-Y)
+
+X_glmnet <- model.matrix(~ ., data = X)[, -1] 
+
+str(Y_glmnet)
+str(X_glmnet)
+```
+
+```{r}
+set.seed(20)
+
+# Define tuning parameters
+p           <- ncol(X_glmnet)
+mtry_rf     <- floor(p / 3)
+ntree_rf    <- 500
+nodesize_rf <- 5
+
+# Create 10 random folds 
+n <- nrow(X_glmnet)
+folds <- sample(rep(1:10, length.out = n))
+
+cv_mse <- numeric(10)
+
+for (i in 1:10) {
+  test_idx  <- which(folds == i)
+  train_idx <- setdiff(1:n, test_idx)
+  
+  X_train <- X_glmnet[train_idx, , drop = FALSE]
+  Y_train <- Y_glmnet[train_idx]
+  X_test  <- X_glmnet[test_idx, , drop = FALSE]
+  Y_test  <- Y_glmnet[test_idx]
+  
+  rf_model <- randomForest(
+    x         = X_train,
+    y         = Y_train,
+    ntree     = ntree_rf,
+    mtry      = mtry_rf,
+    nodesize  = nodesize_rf
+  )
+  
+  preds <- predict(rf_model, X_test)
+  cv_mse[i] <- mean((Y_test - preds)^2)
+}
+
+mean_cv_mse <- mean(cv_mse)
+cat("10-Fold CV MSE for Random Forest:", mean_cv_mse, "\n")
+print(mean_cv_mse)
+```
+
+```{r}
+# Permutation feature importance method
+library(iml)
+
+X_df <- as.data.frame(X_glmnet)
+
+pred.rf <- Predictor$new(final_rf_model, data = X_df, y = Y_glmnet)
+
+importance <- FeatureImp$new(pred.rf, loss = "mse")
+plot(importance)
+
+# Top Features
+importance <- FeatureImp$new(pred.rf, loss = "mse") 
+importance_df <- importance$results
+head(importance_df[order(-importance_df$importance), ], 5)
+
+# Accumulated local effects plots
+top_features <- importance_df[order(-importance_df$importance), "feature"]
+for (i in 1:3) {
+  ale <- FeatureEffect$new(pred.rf, feature = top_features[i], method = "ale")
+  print(plot(ale) + ggtitle(paste("ALE Plot for", top_features[i])))
+}
+
+```
+
+## a. Which features have the greatest impact on the mean squared error loss function for the random forest predictor?
+
+Based on the permutation feature importance output, the top 3 features that have the greatest impact on the mean squared error (MSE) loss function for the random forest predictor are:
+
+X34 - Importance: 4.46, Permutation error: 92.16
+
+X72 - Importance: 3.59, Permutation error: 74.15
+
+X1 - Importance: 2.65, Permutation error: 54.82
+
+These features caused the largest increase in MSE when permuted, indicating they are the most influential in the model's predictions.
+
+## b. For the top features, do any exhibit non-linearities (e.g. using accumulated local effects plots)?
+
+Yes, the ALE plots for the top three features X34, X72, and X1 demonstrate clear non-linear relationships. These non-linear patterns highlight the flexibility of the random forest model in capturing complex feature-outcome relationships that would be missed by linear models.
+
+X34: The ALE plot for X34 shows a strong upward trend with a sharp inflection around the center of the distribution, suggesting that the feature has a substantial nonlinear impact on the prediction. The steep change indicates that small increases in X34 around this region significantly raise the predicted outcome.
+
+X72: The ALE plot for X72 also exhibits a steep nonlinear pattern, with the effect on the outcome increasing rapidly in the middle range.
+
+X1: The ALE plot for X1 reveals a smoother, S-shaped nonlinear relationship, indicating that its influence on the outcome varies across its range. The gradual slope changes show how X1 contributes differently depending on its value.
+
+# 3. The article by Barbieri S et al. (2022) estimated a cardiovascular risk predictor using administrative data from the health system in New Zealand (The PDF is available on canvas).
+
+## a. Describe how the outcome was defined, what the loss function was for their main deep learning predictor (and additional performance metrics reported), and how you think the predictor could be used for future participants.
+
+*Outcome:* The outcome was the time in days to the first fatal or non-fatal cardiovascular (CVD) event over a 5-year period (between 1 January 2013 and 31 December 2017), identified through national hospitalization and mortality datasets.Events were coded using ICD10-AM codes. Individuals who died from non-CVD causes or were lost to follow-up were censored.
+
+*Loss function:* Sex-specific estimates of network parameters were obtained by maximizing the Cox partial likelihood on the training data, using mini-batch stochastic gradient descent
+
+*Additional performance metrics reported:* Harrell’s C statistic, Royston & Sauerbrei’s R², D-statistic, Integrated Brier Score
+
+*Implications:* These models can help predict how many people may develop heart disease in the future, identify specific groups to target for prevention efforts, and evaluate whether certain health policies or treatments are effective for individuals at different risk levels. Additionally, the method used to calculate local hazard ratios—which quantify how risk changes based on specific factors—can be applied beyond heart disease to study associations between diagnoses, treatments, or medications and other conditions in time-to-event analyses. The deep learning approach is also adaptable to various clinical outcomes, not just cardiovascular events, making it a generalizable framework for population-level disease risk prediction. Ultimately, this predictor can support health system planning by estimating future disease burden and guiding resource allocation where it’s most needed.
+
+It would also be valuable to conduct strategy clinical trials—where individuals are randomized to care guided by the predictor versus standard care—as part of an Implementation Science approach. This enables systematic evaluation of how predictive models influence decision-making and outcomes. Much like pre-deployment data validation for machine learning tools, these trials should be paired with a monitoring plan to track model performance and ensure safe, effective use in real-world settings.
+
+## b. Assume the authors are intending to use this predictor on future individuals in the New Zealand health system. What recommendations would you have for them to consider beyond what is in the manuscript prior to using these predictor in practice?
+
+1.  Update with New Data: The model was trained on data from 2012, but health trends evolve over time. To maintain predictive accuracy, it is crucial to regularly retrain or recalibrate the model. Ideally they should do this every few years, using the most recent data available from the New Zealand health system.
+
+2.  Improve Interpretability: Deep learning models, while powerful, are often difficult to interpret. This is especially important in time-to-event analyses. Implementing tools such as Accumulated Local Effects (ALE) plots could enhance transparency and trust by helping clinicians understand which variables contributed most to an individual’s predicted risk and in what way. This added interpretability can support more informed clinical decision making and greater user confidence.
+
+3.  Monitoring Plan: To ensure safe and effective deployment, the model should be accompanied by a monitoring plan. This plan should track feature drift (changes in input data distributions), shifts in prediction outputs, and declines in predictive performance over time—especially if outcome feedback is available. Monitoring system performance (e.g., run time), usage patterns, and potential misuse is also critical. Tools like control charts can visualize trends and detect when the model is no longer functioning as intended, prompting recalibration, retraining, or other corrective actions.

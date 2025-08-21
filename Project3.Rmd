@@ -1,0 +1,223 @@
+---
+title: "PBHS- HW3 (Liz Kim)"
+author: "Liz"
+date: "2025-04-24"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# 1. Using the same dataset from the last homework, `HW2_dataset.csv`, estimate a new predictor using the random forests algorithm. a. How does the mean squared error estimate for your random forests predictor compare with the regularized regression estimates from HW2? 
+
+```{r}
+library(glmnet)      
+library(randomForest) 
+library(ggplot2) 
+library(tidyverse) 
+```
+
+```{r}
+df <- read.csv("HW2_dataset.csv")
+```
+
+
+```{r}
+Y_glmnet <- df$Y
+X <- df %>% select(-Y)
+
+X_glmnet <- model.matrix(~ ., data = X)[, -1] 
+
+str(Y_glmnet)
+str(X_glmnet)
+```
+```{r}
+set.seed(20)
+
+# Define tuning parameters
+p           <- ncol(X_glmnet)
+mtry_rf     <- floor(p / 3)
+ntree_rf    <- 500
+nodesize_rf <- 5
+
+# Create 10 random folds 
+n <- nrow(X_glmnet)
+folds <- sample(rep(1:10, length.out = n))
+
+cv_mse <- numeric(10)
+
+for (i in 1:10) {
+  test_idx  <- which(folds == i)
+  train_idx <- setdiff(1:n, test_idx)
+  
+  X_train <- X_glmnet[train_idx, , drop = FALSE]
+  Y_train <- Y_glmnet[train_idx]
+  X_test  <- X_glmnet[test_idx, , drop = FALSE]
+  Y_test  <- Y_glmnet[test_idx]
+  
+  rf_model <- randomForest(
+    x         = X_train,
+    y         = Y_train,
+    ntree     = ntree_rf,
+    mtry      = mtry_rf,
+    nodesize  = nodesize_rf
+  )
+  
+  preds <- predict(rf_model, X_test)
+  cv_mse[i] <- mean((Y_test - preds)^2)
+}
+
+mean_cv_mse <- mean(cv_mse)
+cat("10-Fold CV MSE for Random Forest:", mean_cv_mse, "\n")
+```
+
+```{r}
+# Ridge Regression (alpha = 0)
+
+set.seed(20)
+fit_ridge_cv <- cv.glmnet(X_glmnet, Y_glmnet, alpha = 0, nfolds = 10, family = "gaussian")
+```
+
+```{r}
+#Lasso Regression (alpha = 1) 
+
+set.seed(20)
+fit_lasso_cv <- cv.glmnet(X_glmnet, Y_glmnet, alpha = 1, nfolds = 10, family = "gaussian")
+
+```
+
+```{r}
+#Elastic Net Regression (alpha = 0.5)
+
+set.seed(20)
+fit_en_cv <- cv.glmnet(X_glmnet, Y_glmnet, alpha = 0.5, nfolds = 10, family = "gaussian")
+```
+
+```{r}
+# Combine all into a comparison table
+mse_df <- data.frame(
+  Model = c("Ridge", "Lasso", "Elastic Net"),
+  MSE   = c(ridge_mse, lasso_mse, en_mse)
+)
+print(mse_df)
+```
+
+The Random Forest predictor, evaluated using 10-fold cross-validation, yielded a mean squared error (MSE) of approximately 133.85. When compared to the previously calculated regularized regression models, the Random Forest had a higher MSE. Specifically, Ridge regression had the lowest MSE at around 117.08, followed closely by Lasso (119.71) and Elastic Net (119.97). Thus, the Random Forest algorithm, despite its flexibility in capturing complex relationships, did not outperform the regularized regression methods on this particular dataset. This suggests that for this specific scenario, simpler regularized models provided a more accurate prediction with lower error rates.
+
+# b. Create a scatterplot comparing the predicted values from your random forests (x-axis) to your predicted values from the lasso regression (y-axis) and describe how they are similar or different.
+
+```{r}
+# Generate predictions
+pred_rf    <- predict(rf_fit,    newdata = X_glmnet)
+pred_lasso <- predict(fit_lasso_cv, newx = X_glmnet, s = "lambda.1se")
+pred_lasso <- as.numeric(pred_lasso) 
+
+# Build a data frame for plotting
+plot_df <- data.frame(
+  RF    = pred_rf,
+  Lasso = pred_lasso
+)
+
+# Scatterplot 
+ggplot(plot_df, aes(x = RF, y = Lasso)) +
+  geom_point(alpha = 0.6) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(
+    x     = "Random Forest predictions",
+    y     = "Lasso predictions",
+    title = "RF vs. Lasso: Predicted Values"
+  ) +
+  theme_minimal()
+```
+Each dot on the scatterplot shows the predictions for one data point — one from the Random Forest model (on the x-axis) and one from the Lasso regression (on the y-axis).
+
+If the two models gave the same prediction, the dot would fall exactly on the dashed diagonal line (where x = y). Most of the dots are close to that line, which means that for most data points, the two models gave similar predicted values.
+
+However, when the predictions get very high or very low, we can see some differences. When Random Forest predicts a really high value, Lasso tends to predict a lower value — so those dots fall below the line. When Random Forest predicts a very low value, Lasso doesn’t go as low — those dots fall above the line.
+
+In simple terms, Lasso tends to “pull in” predictions toward the average, because it uses a penalty that discourages extreme values. Random Forest, on the other hand, is more flexible and can give bigger or smaller predictions depending on the data. So while they mostly agree, Random Forest is more willing to make bold predictions, especially at the extremes.
+
+# 2. In the random forest predictor above, how did you select the values for the tuning parameters: the number of features to select at each node (mtry) and the number of trees (ntree)?
+
+To choose the tuning parameters for the Random Forest model, I followed both common practice and the guidelines provided in class.
+
+For mtry, which is the number of features to randomly sample at each split, I used the standard rule for regression: mtry = floor(p / 3), where p is the total number of predictors. This rule helps increase tree diversity and often leads to better model performance. This is also what was recommended in the class slides, where it states that for regression tasks, mtry should be about one-third of the total number of features.
+
+For ntree, which is the number of trees in the forest, I used the default value of 500. According to both the class materials and standard practice, using 500 trees usually gives a stable and accurate model without taking too long to run. 
+
+# 3. Finally, with this same dataset, estimate a super learner ensemble with at least 10 different candidate learners in the library, these can be a mixture of different algorithms and different values of tuning parameters to create the 10 different candidates. Using a nested cross-validation approach (like the CV.SuperLearner function), how does the 10-fold cross-validated estimate of the mean squared error compare between the final ensemble and the individual candidate algorithms?
+
+```{r}
+library(ggplot2)
+library(SuperLearner)
+library(janitor)
+library(TeachingDemos)
+library(xgboost)
+listWrappers()  
+```
+
+
+```{r}
+# One way to propose different candidates is to consider different levels of tuning parameters as unique candidates
+
+# Ridge (alpha = 0)
+SL.glmnet0 <- function(...){
+  SL.glmnet(..., alpha = 0)
+}
+
+# XGBoost with 100 trees and depth = 2
+SL.xgboost_100 <- function(...){
+  SL.xgboost(..., ntrees = 100, max_depth = 2)
+}
+
+# Create candidates
+enet <- create.Learner(
+  "SL.glmnet",
+  detailed_names = TRUE,
+  tune = list(alpha = seq(0, 1, length.out = 3))
+)
+# Super Learner Assemble
+sl_lib <- c(
+  "SL.mean",    
+  "SL.glm",     
+  "SL.gam",   
+  enet$names,
+  "SL.xgboost_100",
+  "SL.randomForest",
+  "SL.rpart",  
+  "SL.earth"
+)
+
+length(sl_lib) 
+```
+
+
+```{r}
+# Data Processing 
+df <- read.csv("HW2_dataset.csv")        
+
+X_SL <- model.matrix(Y ~ ., data = df)[, -1] %>%
+          as.data.frame() %>%
+          clean_names()   
+
+Y_SL <- df$Y    
+```
+
+```{r}
+# estimate super learner 
+set.seed(2025)
+fit_cv_sl <- CV.SuperLearner(
+  Y = Y_SL,
+  X = X_SL,
+  SL.library = sl_lib,
+  family = gaussian(),
+  method = "method.NNLS",
+  cvControl = list(V = 10),
+  innerCvControl = list(list(V = 5))
+)
+summary(fit_cv_sl)
+plot(fit_sl_cv) + theme_bw()
+```
+The Super Learner ensemble achieved one of the lowest mean squared errors (MSE) at 118.22, closely followed by the lasso regression model (SL.glmnet_1_All) with an MSE of 118.06. Although lasso's MSE is slightly lower, the difference (≈0.17) is negligible given the standard errors of both models (≈5.4), indicating no statistically meaningful performance gap. However, when looking at prediction range, the Super Learner’s spread from 98.47 to 148.03 is slightly narrower than lasso’s range of 93.20 to 146.78, suggesting slightly more stable predictions across folds. Elastic net (SL.glmnet_0.5_All) also performed well, with an MSE of 118.48 and a comparable range (92.62 to 148.02). The poorest performing model was the baseline mean predictor (SL.mean_All), with an MSE of 209.84 and the very wide range (170.44 to 269.07), reflecting both poor accuracy and large variability.
+
+In summary, the Super Learner not only matched the best individual models in accuracy but also delivered consistently stable predictions, confirming the power of ensemble methods to combine the multiple learners. 
