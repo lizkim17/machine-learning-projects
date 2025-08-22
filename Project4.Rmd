@@ -1,5 +1,5 @@
 ---
-title: "PBHS- HW2 (Liz Kim)"
+title: "Project 4"
 author: "Liz"
 date: "2025-04-11"
 output: html_document
@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# 1. On canvas there is a dataset called `Chicago_air_quality.csv`. The data is derived from the National Morbidity, Mortality, and Air Pollution Study (NMMAPS). 
+# 1. There is a dataset called `Chicago_air_quality.csv`. The data is derived from the National Morbidity, Mortality, and Air Pollution Study (NMMAPS). 
 
 Consider developing a predictor with the natural logarithm of the number of deaths as the outcome and the other variables as input features. For this assignment, demonstrate at least three different basis function options for the features to predict the outcome, with the question of does air quality predict the mortality rate within a geographic region, where air quality is measured by the features in the dataset. Explain why you chose the three different basis functions as candidate predictors and in a paragraph explain how they performed for this task. Using one of the resampling methods (e.g. bootstrap or cross-validation) estimate the predictive performance for each predictor. How did the different predictors vary in their predictive performance?
 
@@ -218,7 +218,7 @@ First, I chose cubic polynomials because they are a straightforward extension of
 
 I used 10-fold cross-validation to estimate how well each modeling approach—polynomial, spline, and GAM—predicts the log of daily deaths based on features of the predictor. All three models achieved similar mean squared errors (MSE) around 0.0125-0.0127, with standard deviations also closely aligned, indicating little difference in their ability to capture patterns within this dataset. In conclusion, although the models differ in complexity and flexibility, no single basis function significantly outperformed the others in predicting daily mortality from air quality features. 
 
-# 2. Also on canvas is a dataset called `dataset3.csv`. The dataset has been modified to be de-identified and all variables names anonymized. The outcome variable is Y, and X1 through X125 are potential features representing a mixture of variable types (binary, categorical, and continuous). The task is to compare a series of regularized regression predictors using the squared error loss function. Consider the four methods:
+# 2. The dataset, `dataset3.csv`, has been modified to be de-identified and all variables names anonymized. The outcome variable is Y, and X1 through X125 are potential features representing a mixture of variable types (binary, categorical, and continuous). The task is to compare a series of regularized regression predictors using the squared error loss function. Consider the four methods:
 
 1.  Regular Linear Regression
 2.  Ridge Regression

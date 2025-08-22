@@ -8,7 +8,7 @@ output: pdf_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-# 1. Using the provided dataset, estimate a new predictor using the random forests algorithm. a. How does the mean squared error estimate for your random forests predictor compare with the regularized regression estimates? 
+# 1. Using `dataset3.csv`, estimate a new predictor using the random forests algorithm. a. How does the mean squared error estimate for your random forests predictor compare with the regularized regression estimates? 
 
 ```{r}
 library(glmnet)      
