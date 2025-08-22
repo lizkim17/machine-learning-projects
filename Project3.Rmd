@@ -8,7 +8,7 @@ output: pdf_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-# 1. Using the same dataset from the last homework, `HW2_dataset.csv`, estimate a new predictor using the random forests algorithm. a. How does the mean squared error estimate for your random forests predictor compare with the regularized regression estimates from HW2? 
+# 1. Using the provided dataset, estimate a new predictor using the random forests algorithm. a. How does the mean squared error estimate for your random forests predictor compare with the regularized regression estimates? 
 
 ```{r}
 library(glmnet)      
@@ -18,7 +18,7 @@ library(tidyverse)
 ```
 
 ```{r}
-df <- read.csv("HW2_dataset.csv")
+df <- read.csv("dataset3.csv")
 ```
 
 
@@ -194,7 +194,7 @@ length(sl_lib)
 
 ```{r}
 # Data Processing 
-df <- read.csv("HW2_dataset.csv")        
+df <- read.csv("dataset3.csv")        
 
 X_SL <- model.matrix(Y ~ ., data = df)[, -1] %>%
           as.data.frame() %>%
