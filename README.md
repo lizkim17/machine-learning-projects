@@ -5,5 +5,5 @@ These projects were designed primarily to exercise and develop skills rather tha
 
 - **Project 1:** Used the `ncbirths` dataset to estimate predictors of low birthweight with Elastic Net and Random Forest models.  
 - **Project 2:** Used data from the U.S. National Health and Nutrition Examination Survey (NHANES) to estimate predictors with Elastic Net logistic regression and Random Forest models.  
-- **Project 3:** Used the provided dataset in class to estimate predictors with Random Forests and a Super Learner ensemble approach.  
-
+- **Project 3:** Used the provided dataset in class, `dataset3` to estimate predictors with Random Forests and a Super Learner ensemble approach.  
+- **Project 4:** Used the `Chicago_air_quality.csv` and `dataset3` datasets to estimate predictors and compare a series of regularized regression models.
