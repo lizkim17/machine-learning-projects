@@ -1,0 +1,341 @@
+---
+title: "PBHS- HW2 (Liz Kim)"
+author: "Liz"
+date: "2025-04-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. On canvas there is a dataset called `Chicago_air_quality.csv`. The data is derived from the National Morbidity, Mortality, and Air Pollution Study (NMMAPS). 
+
+Consider developing a predictor with the natural logarithm of the number of deaths as the outcome and the other variables as input features. For this assignment, demonstrate at least three different basis function options for the features to predict the outcome, with the question of does air quality predict the mortality rate within a geographic region, where air quality is measured by the features in the dataset. Explain why you chose the three different basis functions as candidate predictors and in a paragraph explain how they performed for this task. Using one of the resampling methods (e.g. bootstrap or cross-validation) estimate the predictive performance for each predictor. How did the different predictors vary in their predictive performance?
+
+```{r}
+library(readr)
+df <- read_csv("Chicago_air_quality.csv")
+```
+
+## 1-a. Polynomial basis functions (cubic terms)
+
+```{r}
+library(ggplot2)
+fit_poly <- lm(log(death) ~ poly(tmpd, 3) + poly(linear_pm25, 3) +
+                               poly(linear_pm10, 3) + poly(o3median, 3),
+               data = df)
+summary(fit_poly)
+```
+
+```{r}
+# Fit a polynomial model with linear_pm25
+fit_pm25 <- lm(log(death) ~ poly(linear_pm25, 3), data = df)
+pred_pm25 <- data.frame(linear_pm25 = seq(min(df$linear_pm25, na.rm = TRUE),
+                                          max(df$linear_pm25, na.rm = TRUE),
+                                          by = 0.1))
+pred_pm25$fit <- predict(fit_pm25, newdata = pred_pm25)
+
+
+ggplot(df, aes(x = linear_pm25, y = log(death))) +
+  geom_point() +
+  geom_line(data = pred_pm25, aes(x = linear_pm25, y = fit), 
+            size = 3, color = "blue") +
+  labs(title = "Polynomial Fit for linear_pm25",
+       x = "linear_pm25", y = "death")
+```
+
+## 1-b. Cubic Spline
+
+```{r}
+library(splines)
+
+# Cubic Spline
+knots_tmpd <- quantile(df$tmpd, probs = c(1/3, 2/3))
+knots_pm25 <- quantile(df$linear_pm25, probs = c(1/3, 2/3))
+knots_pm10 <- quantile(df$linear_pm10, probs = c(1/3, 2/3))
+knots_o3   <- quantile(df$o3median, probs = c(1/3, 2/3))
+
+fit_spline <- lm(log(death) ~ bs(tmpd, knots = knots_tmpd) +
+                                bs(linear_pm25, knots = knots_pm25) +
+                                bs(linear_pm10, knots = knots_pm10) +
+                                bs(o3median, knots = knots_o3),
+                 data = df)
+summary(fit_spline)
+
+# Checking Knot Placement Across Predictors
+sum(df$tmpd <= knots_tmpd[1])
+sum(df$tmpd <= knots_tmpd[2])
+
+sum(df$linear_pm10 <= knots_pm10[1])
+sum(df$linear_pm10 <= knots_pm10[2])
+
+sum(df$o3median <= knots_o3[1])
+sum(df$o3median <= knots_o3[2])
+
+sum(df$linear_pm25 <= knots_pm25[1])  
+sum(df$linear_pm25 <= knots_pm25[2])  
+```
+
+I selected the 33rd and 66th percentiles as internal knot locations for the spline terms in my regression model, as this quantile-based approach is commonly used in practice. To confirm that these percentiles accurately captured the central distribution of my data, I verified that approximately one-third and two-thirds of the observations fell below the first and second knot positions, respectively. This confirmed that the knots were placed in regions with high data density and were appropriate for flexible spline modeling.
+
+```{r}
+# Fit a Spline with linear_pm25
+fit_spline_pm25 <- lm(log(death) ~ bs(linear_pm25, df = 6), data = df)
+pred_spline_pm25 <- data.frame(linear_pm25 = seq(min(df$linear_pm25, na.rm = TRUE),
+                                                  max(df$linear_pm25, na.rm = TRUE),
+                                                  by = 0.1))
+pred_spline_pm25$fit <- predict(fit_spline_pm25, newdata = pred_spline_pm25)
+
+ggplot(df, aes(x = linear_pm25, y = log(death))) +
+  geom_point() +
+  geom_line(data = pred_spline_pm25, aes(x = linear_pm25, y = fit), 
+            size = 3, color = "blue") +
+  labs(title = "Spline Fit for linear_pm25",
+       x = "linear_pm25", y = "death")
+```
+
+
+## 1-c. Generalized Additive Model (GAM)
+
+```{r}
+library(mgcv)
+fit_gam <- gam(log(death) ~ s(tmpd, k = 6) +
+                            s(linear_pm25, k = 6) +
+                            s(linear_pm10, k = 6) +
+                            s(o3median, k = 6),
+               data = df)
+summary(fit_gam)
+```
+
+```{r}
+# Fit a GAM with linear_pm25
+fit_gam_pm25 <- gam(log(death) ~ s(linear_pm25, k = 6), data = df)
+pred_gam_pm25 <- data.frame(linear_pm25 = seq(min(df$linear_pm25, na.rm = TRUE),
+                                               max(df$linear_pm25, na.rm = TRUE),
+                                               by = 0.1))
+
+pred_gam_pm25$fit <- predict(fit_gam_pm25, newdata = pred_gam_pm25)
+ggplot(df, aes(x = linear_pm25, y = log(death))) +
+  geom_point() +
+  geom_line(data = pred_gam_pm25, aes(x = linear_pm25, y = fit), 
+            size = 3, color = "blue") +
+  labs(title = "GAM Fit for linear_pm25",
+       x = "linear_pm25", y = "death")
+```
+
+## 10-fold cross-validation
+
+```{r}
+N <- nrow(df)
+V <- 10
+set.seed(2023)
+folds <- split(sample(1:N), rep(1:V, length = N))
+str(folds)
+```
+
+```{r}
+cvOUT <- matrix(NA, nrow = V, ncol = 3)
+colnames(cvOUT) <- c("poly", "spline", "gam")
+```
+
+```{r}
+for(v in 1:V) {
+  tmp_train <- df[-folds[[v]], ]  
+  tmp_test  <- df[ folds[[v]], ]  
+
+  fit_poly <- lm(log(death) ~ poly(tmpd, 3) +
+                                poly(linear_pm25, 3) +
+                                poly(linear_pm10, 3) +
+                                poly(o3median, 3),
+                 data = tmp_train)
+
+  pred_poly <- predict(fit_poly, newdata = tmp_test)
+
+  mse_poly <- mean((tmp_test$death |> log() - pred_poly)^2)
+
+  cvOUT[v, "poly"] <- mse_poly
+}
+```
+
+```{r}
+knots_tmpd   <- quantile(df$tmpd, probs = c(1/3, 2/3))
+knots_pm25   <- quantile(df$linear_pm25, probs = c(1/3, 2/3))
+knots_pm10   <- quantile(df$linear_pm10, probs = c(1/3, 2/3))
+knots_o3     <- quantile(df$o3median, probs = c(1/3, 2/3))
+
+for(v in 1:V) {
+  tmp_train <- df[-folds[[v]], ]
+  tmp_test  <- df[ folds[[v]], ]
+
+  fit_spline <- lm(log(death) ~ bs(tmpd, knots = knots_tmpd) +
+                                   bs(linear_pm25, knots = knots_pm25) +
+                                   bs(linear_pm10, knots = knots_pm10) +
+                                   bs(o3median, knots = knots_o3),
+                   data = tmp_train)
+
+  pred_spline <- predict(fit_spline, newdata = tmp_test)
+  mse_spline <- mean((tmp_test$death |> log() - pred_spline)^2)
+
+  cvOUT[v, "spline"] <- mse_spline
+}
+```
+
+```{r}
+for (v in 1:V) {
+  tmp_train <- df[-folds[[v]], ]
+  tmp_test  <- df[ folds[[v]], ]
+  
+  fit_gam <- gam(log(death) ~ s(tmpd, k = 4) +
+                             s(linear_pm25, k = 4) +
+                             s(linear_pm10, k = 4) +
+                             s(o3median, k = 4),
+                 data = tmp_train)
+
+  pred_gam <- predict(fit_gam, newdata = tmp_test)
+  mse_gam <- mean((log(tmp_test$death) - pred_gam)^2)
+
+  cvOUT[v, "gam"] <- mse_gam
+}
+```
+
+```{r}
+# Mean MSE for each model
+colMeans(cvOUT)
+
+# More detailed summary
+apply(cvOUT, 2, summary)
+
+# Standard deviations
+apply(cvOUT, 2, sd)
+```
+
+## Explanation
+
+I wanted to see if air quality predict the mortality rate within a geographic region, where air quality is measured by the features in the dataset. I chose cubic polynomials, splines, and generalized addictive model as three basis functions. I chose these among the options provided from the class slides. 
+
+First, I chose cubic polynomials because they are a straightforward extension of linear regression that can model moderate curvature in the relationship between features and log(death). This method is simple to implement and often effective when the nonlinearity is not too complex. Second, I included splines because they offer greater flexibility than polynomials. By breaking the predictor range into segments and joining piecewise polynomial fits smoothly at specific knots (placed at quantiles), splines allow the model to adapt more closely to the shape of the data distribution. I chose them to capture potential local nonlinearities in the predictors. Lastly, I chose generalized additive models (GAMs) because they are highly flexible and automatically adjust to the data. GAMs use smooth functions for each variable, letting each one have its own shape in how it affects the outcome. They also include controls to avoid overfitting. GAMs are especially useful when you're not sure what kind of curve to expect for each predictor.
+
+I used 10-fold cross-validation to estimate how well each modeling approach—polynomial, spline, and GAM—predicts the log of daily deaths based on features of the predictor. All three models achieved similar mean squared errors (MSE) around 0.0125-0.0127, with standard deviations also closely aligned, indicating little difference in their ability to capture patterns within this dataset. In conclusion, although the models differ in complexity and flexibility, no single basis function significantly outperformed the others in predicting daily mortality from air quality features. 
+
+# 2. Also on canvas is a dataset called `dataset3.csv`. The dataset has been modified to be de-identified and all variables names anonymized. The outcome variable is Y, and X1 through X125 are potential features representing a mixture of variable types (binary, categorical, and continuous). The task is to compare a series of regularized regression predictors using the squared error loss function. Consider the four methods:
+
+1.  Regular Linear Regression
+2.  Ridge Regression
+3.  Lasso Regression
+4.  Elastic Net Regression
+
+How do the different parameter estimates vary across these methods with the dataset? Which method appears to perform best?
+
+```{r}
+df <- read_csv("dataset3.csv")
+```
+
+```{r}
+library(glmnet)
+library(tidyverse)
+```
+
+```{r}
+# Create X and Y
+Y_glmnet <- df$Y
+X <- df %>% select(-Y)
+
+# Convert predictors to numeric matrix: converts them into a numeric matrix that glmnet() can use
+X_glmnet <- model.matrix(~ ., data = X)[, -1] 
+
+# Check final structures
+str(Y_glmnet)
+str(X_glmnet)
+```
+
+## 2-a. Regular Linear Regression
+
+```{r}
+fit_ols <- lm(Y_glmnet ~ ., data = as.data.frame(X_glmnet))
+ols_coef <- coef(fit_ols)
+plot(fit_ols)
+```
+
+## 2-b. Ridge Regression
+
+```{r}
+# Ridge Regression (alpha = 0)
+
+set.seed(20)
+fit_ridge_cv <- cv.glmnet(X_glmnet, Y_glmnet, alpha = 0, nfolds = 10, family = "gaussian")
+plot(fit_ridge_cv)
+
+cat("Ridge - Min lambda:", log(fit_ridge_cv$lambda.min), "\n")
+cat("Ridge - 1SE lambda:", log(fit_ridge_cv$lambda.1se), "\n")
+ridge_coef <- coef(fit_ridge_cv$glmnet.fit, s = fit_ridge_cv$lambda.1se)
+```
+
+## 2-c. Lasso Regression
+
+```{r}
+#Lasso Regression (alpha = 1) 
+
+set.seed(20)
+fit_lasso_cv <- cv.glmnet(X_glmnet, Y_glmnet, alpha = 1, nfolds = 10, family = "gaussian")
+plot(fit_lasso_cv)
+
+cat("Lasso - Min lambda:", log(fit_lasso_cv$lambda.min), "\n")
+cat("Lasso - 1SE lambda:", log(fit_lasso_cv$lambda.1se), "\n")
+lasso_coef <- coef(fit_lasso_cv$glmnet.fit, s = fit_lasso_cv$lambda.1se)
+
+```
+
+## 2-d. Elastic Net Regression
+
+```{r}
+#Elastic Net Regression (alpha = 0.5)
+
+set.seed(20)
+fit_en_cv <- cv.glmnet(X_glmnet, Y_glmnet, alpha = 0.5, nfolds = 10, family = "gaussian")
+plot(fit_en_cv)
+
+cat("Elastic Net - Min lambda:", log(fit_en_cv$lambda.min), "\n")
+cat("Elastic Net - 1SE lambda:", log(fit_en_cv$lambda.1se), "\n")
+en_coef <- coef(fit_en_cv$glmnet.fit, s = fit_en_cv$lambda.1se)
+```
+
+```{r}
+# Combine all into a comparison table
+coef_df <- data.frame(
+  Variable = rownames(as.matrix(lasso_coef)),
+  OLS = ols_coef[match(rownames(as.matrix(lasso_coef)), names(ols_coef))],
+  RIDGE = as.numeric(ridge_coef),
+  LASSO = as.numeric(lasso_coef),
+  EN = as.numeric(en_coef)
+)
+
+# Features Selection
+apply(coef_df[, -1], 2, function(x) sum(x != 0))
+
+# MSE
+ols_pred <- predict(fit_ols, newdata = as.data.frame(X_glmnet))
+ols_mse <- mean((Y_glmnet - ols_pred)^2)
+ridge_pred <- predict(fit_ridge_cv, newx = X_glmnet, s = fit_ridge_cv$lambda.1se)
+ridge_mse <- mean((Y_glmnet - ridge_pred)^2)
+lasso_pred <- predict(fit_lasso_cv, newx = X_glmnet, s = fit_lasso_cv$lambda.1se)
+lasso_mse <- mean((Y_glmnet - lasso_pred)^2)
+en_pred <- predict(fit_en_cv, newx = X_glmnet, s = fit_en_cv$lambda.1se)
+en_mse <- mean((Y_glmnet - en_pred)^2)
+# MSE Summary
+mse_df <- data.frame(
+  Model = c("OLS", "Ridge", "Lasso", "Elastic Net"),
+  MSE = c(ols_mse, ridge_mse, lasso_mse, en_mse)
+)
+print(mse_df)
+```
+
+## Explanation
+
+To compare different models, we looked at how well each method predicted the outcome and how many variables they used. The models we compared were Ordinary Least Squares (OLS), Ridge, Lasso, and Elastic Net regression. 
+
+OLS and Ridge regression both used all 130 variables in the dataset, meaning they didn’t remove any predictors. The key difference lies in how they handle large coefficients. Ridge regression uses a method called L2 regularization, which slightly shrinks the size of all coefficients to prevent the model from overreacting to noise in the data — but it doesn’t eliminate any variables. In contrast, Lasso uses L1 regularization, which not only shrinks coefficients but can also reduce some of them exactly to zero. This allows Lasso to select only the most important variables, making the model simpler and more interpretable. Elastic Net combines both L1 and L2 penalties, offering a balance between Ridge’s shrinkage and Lasso’s variable selection. In our results, Lasso and Elastic Net removed most variables, keeping only the most important ones — Lasso used just 8 predictors, and Elastic Net used 9. This is helpful because it makes the model easier to interpret and may improve performance on new data.
+
+When we compared how accurate the predictions were using mean squared error (MSE) — a common way to measure prediction error — OLS performed best on this dataset with the lowest error (MSE = 100.6). Ridge had a slightly higher error (117.1), while Lasso and Elastic Net had MSEs of 119.7 and 120.0, respectively.
+
+In summary, OLS made the best predictions for this dataset, but it used all variables, which might not be ideal in every case. Lasso and Elastic Net were more selective, keeping only a few important variables, which is helpful for preventing overfitting in the new dataset.
